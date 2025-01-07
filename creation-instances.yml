@@ -52,7 +52,7 @@
 
     - name: Create a security group
       debug:
-        msg: "Security Group created with ID: {{ sg.security_group_id }}
+        msg: "Security Group created with ID: {{ sg.security_group_id }}"
 
     - name: Provision Load Balancer (HAProxy) EC2 Instance
       ec2_instance:
