@@ -12,7 +12,6 @@
     wait: yes
     group: webserver
     region: eu-west-2
-    lb: alb
     security_group: security-group-app-server1
 
   tasks:
