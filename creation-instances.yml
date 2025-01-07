@@ -176,92 +176,92 @@
     - name: Reload HAproxy to apply configuration changes
       command: systemctl reload haproxy # check that ***
 
-    - name: Configure Application servers
-      hosts: "{{ item.public_ip }}"
-      become: yes
-      with_items:
-        - "{{ app1_instance.instances[0] }}"
-        - "{{ app2_instance.instances[0] }}"
-      tasks:
-        - name: Update apt cache
-          apt:
-            update_cache: yes
+- name: Configure Application servers
+  hosts: "{{ item.public_ip }}"
+  become: yes
+  with_items:
+    - "{{ app1_instance.instances[0] }}"
+    - "{{ app2_instance.instances[0] }}"
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
 
-        - name: Install Node.js and npm
-          apt:
-            name: nodejs
-            state: present
+    - name: Install Node.js and npm
+      apt:
+        name: nodejs
+        state: present
 
-        - name: Install npm
-          apt:
-            name: npm
-            state: present
+    - name: Install npm
+      apt:
+        name: npm
+        state: present
 
-        - name: Verify Node.js installation
-          command: node -v
-          register: node_version
-          changed_when: false
+    - name: Verify Node.js installation
+      command: node -v
+      register: node_version
+      changed_when: false
 
-        - name: Verify npm installation
-          command: npm -v
-          register: npm_version
-          changed_when: false
+    - name: Verify npm installation
+      command: npm -v
+      register: npm_version
+      changed_when: false
 
-        - name: Create app directory
-          file:
-            path: /var/www/hello-world
-            state: directory
-            owner: ubuntu
-            group: ubuntu
+    - name: Create app directory
+      file:
+        path: /var/www/hello-world
+        state: directory
+        owner: ubuntu
+        group: ubuntu
 
-        - name: Deploy sample app
-          copy:
-            dest: /var/www/hello-world/app.js
-            content: |
-              const http = require('http');
-              const hostname = '0.0.0.0';
-              const port = 3000;
+    - name: Deploy sample app
+      copy:
+        dest: /var/www/hello-world/app.js
+        content: |
+          const http = require('http');
+          const hostname = '0.0.0.0';
+          const port = 3000;
 
-              const server = http.createServer((req, res) => {
-                res.statusCode = 200;
-                res.setHeader('Content-Type', 'text/plain');
-                res.end('Hello World\n');
-              });
+          const server = http.createServer((req, res) => {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'text/plain');
+            res.end('Hello World\n');
+          });
 
-              server.listen(port, hostname, () => {
-                console.log('Server running at http://${hostname}:${port}/');
-              });
-            owner: ubuntu
-            group: ubuntu
+          server.listen(port, hostname, () => {
+            console.log('Server running at http://${hostname}:${port}/');
+          });
+        owner: ubuntu
+        group: ubuntu
 
-        - name: Install PM2
-          npm:
-            name: pm2
-            global: yes
+    - name: Install PM2
+      npm:
+        name: pm2
+        global: yes
 
-        - name: Start app using pm2
-          shell: |
-            pm2 start /var/www/hello-world/app.js --name "hello-world"
-          become: true
-          args:
-            chdir: /var/www/hello-world
+    - name: Start app using pm2
+      shell: |
+        pm2 start /var/www/hello-world/app.js --name "hello-world"
+      become: true
+      args:
+        chdir: /var/www/hello-world
 
-        - name: Start on boot pm2
-          shell: |
-            pm2 startup systemd -u ec2-user --htp /home/ec2-user
-            pm2 save
-          become: true
+    - name: Start on boot pm2
+      shell: |
+        pm2 startup systemd -u ec2-user --htp /home/ec2-user
+        pm2 save
+      become: true
 
-        - name: Set ulimits for Node.js security
-          lineinfile:
-            path: /etc/security/limits.conf
-            line: "* soft nofile 4096"
-            state: present
+    - name: Set ulimits for Node.js security
+      lineinfile:
+        path: /etc/security/limits.conf
+        line: "* soft nofile 4096"
+        state: present
 
-        - name: Set NODE_ENV to production
-          shell: |
-            export NODE_ENV=productoin
-            pm2 restart hello-world
-          become: true
-          args:
-            chdir: "/var/www/hello-world"
+    - name: Set NODE_ENV to production
+      shell: |
+        export NODE_ENV=productoin
+        pm2 restart hello-world
+      become: true
+      args:
+        chdir: "/var/www/hello-world"
