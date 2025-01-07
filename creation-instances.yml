@@ -72,8 +72,8 @@
         assign_public_ip: yes
       register: lb_instance
 
-  - name: Provision Application Server 1 EC2 Instance
-    ec2_instance:
+    - name: Provision Application Server 1 EC2 Instance
+      ec2_instance:
         security_group: "{{ security_group }}"
         name: "{{ instance_name1 }}"
         ec2_access_key: "{{ ec2_access_key }}"
@@ -86,10 +86,10 @@
         instance_tags:
           Name: app-server-1
         assign_public_id: yes
-    register: app1_instance
+      register: app1_instance
 
-  - name: Provision Application Server 2 EC2 Instance
-    ec2_instance:
+    - name: Provision Application Server 2 EC2 Instance
+      ec2_instance:
         security_group: "{{ security_group }}"
         name: "{{ instance_name2 }}"
         ec2_access_key: "{{ ec2_access_key }}"
@@ -102,79 +102,79 @@
         instance_tags:
           Name: app-server-2
         assign_public_id: yes
-    register: app2_instance
+      register: app2_instance
 
-  - name: Install HAProxy on Load Balancer
-    hosts: "{{ lb_instance.instances[0].public_ip }}"
-    become: yes
-    tasks:
-      - name: Update apt cache
-        apt:
-          update_cache: yes
+    - name: Install HAProxy on Load Balancer
+      hosts: "{{ lb_instance.instances[0].public_ip }}"
+      become: yes
+      tasks:
+        - name: Update apt cache
+          apt:
+            update_cache: yes
 
-      - name: Install HAProxy
-        apt:
-          name: haproxy
-          state: present
+        - name: Install HAProxy
+          apt:
+            name: haproxy
+            state: present
 
-      - name: Install HAProxy
-        apt:
-          name: haproxy
-          state: present
+        - name: Install HAProxy
+          apt:
+            name: haproxy
+            state: present
 
-      - name: Generate a self-signed key for HAproxy certificate
-        command:
-          cmd: "openssl genkey -algorithm RSA -out /etc/ssl/private/haproxy.key -aes256"
-          creates: /etc/ssl/private/haproxy.key
+        - name: Generate a self-signed key for HAproxy certificate
+          command:
+            cmd: "openssl genkey -algorithm RSA -out /etc/ssl/private/haproxy.key -aes256"
+            creates: /etc/ssl/private/haproxy.key
 
-      - name: Generate a self-signed certificate for HAproxy
-        command:
-          cmd: >
-            openssk req -new -x509 -key /etc/ssl/private/haproxy.key -out /etc/ssl/certs/haproxy.crt -days 365 -subj "/CN=localhost"
-          creates: /etc/ssl/private/haproxy.crt
+        - name: Generate a self-signed certificate for HAproxy
+          command:
+            cmd: >
+              openssk req -new -x509 -key /etc/ssl/private/haproxy.key -out /etc/ssl/certs/haproxy.crt -days 365 -subj "/CN=localhost"
+            creates: /etc/ssl/private/haproxy.crt
 
-      - name: Configure HAProxy for Load Balancing
-        copy:
-          dest: /etc/haproxy/haproxy.cfg
-          content: |
-            global
-              log /dev/log local0
-              log /dev/log local1 notice
-              maxconn 2000
-              user haproxy
-              group haproxy
-              daemon
-              tune.ssl.default-dh-param 2048
+        - name: Configure HAProxy for Load Balancing
+          copy:
+            dest: /etc/haproxy/haproxy.cfg
+            content: |
+              global
+                log /dev/log local0
+                log /dev/log local1 notice
+                maxconn 2000
+                user haproxy
+                group haproxy
+                daemon
+                tune.ssl.default-dh-param 2048
 
-            defaults
-              log global
-              option httplog
-              option dontlognull
-              timeout connect 5000ms
-              timeout client 10000ms
-              timeout sever 10000ms
-              timeout http-keep-alive 10s
-              timeout check 2000 ms
+              defaults
+                log global
+                option httplog
+                option dontlognull
+                timeout connect 5000ms
+                timeout client 10000ms
+                timeout sever 10000ms
+                timeout http-keep-alive 10s
+                timeout check 2000 ms
 
-            frontend https_front
-              bind *:443 ssl crt /etc/ssl/certs/haproxy.crt key /etc/ssl/private/haproxy.key
-              mode http
-              default_backend servers 
+              frontend https_front
+                bind *:443 ssl crt /etc/ssl/certs/haproxy.crt key /etc/ssl/private/haproxy.key
+                mode http
+                default_backend servers 
 
-            backend servers
-              balance roundrobin
-              option http-server-close
-              option forwardfor
-              server app1 {{ app1_instance.instances[0].public_ip }}:443 check
+              backend servers
+                balance roundrobin
+                option http-server-close
+                option forwardfor
+                server app1 {{ app1_instance.instances[0].public_ip }}:443 check
 
-      - name: Ensure HAProxy service is running and enabled
-        service:
-          name: haproxy
-          state: started
-          enabled: yes
+        - name: Ensure HAProxy service is running and enabled
+          service:
+            name: haproxy
+            state: started
+            enabled: yes
 
-      - name: Reload HAproxy to apply configuration changes
-        command: systemctl reload haproxy # check that ***
+        - name: Reload HAproxy to apply configuration changes
+          command: systemctl reload haproxy # check that ***
 
   - name: Configure Application servers
     hosts: "{{ item.public_ip }}"
