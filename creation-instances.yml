@@ -177,11 +177,11 @@
       command: systemctl reload haproxy # check that ***
 
 - name: Configure Application servers
-  hosts: "{{ item.public_ip }}"
+  hosts: "{{ item }}"
   become: yes
   with_items:
-    - "{{ app1_instance.instances[0] }}"
-    - "{{ app2_instance.instances[0] }}"
+    - "{{ app1_instance.instances[0].public_ip }}"
+    - "{{ app2_instance.instances[0].public_ip }}"
   tasks:
     - name: Update apt cache
       apt:
