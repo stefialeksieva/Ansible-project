@@ -66,7 +66,7 @@
         msg: "Security Group created with ID: {{ sg.group_id }}"
 
     - name: Provision Load Balancer (HAProxy) EC2 Instance
-      amazon.aws.ec2_instance:
+      ec2_instance:
         name: "{{ instance_name }}"
         key_name: "{{ ssh_key_name }}"
         ec2_access_key: "{{ ec2_access_key }}"
@@ -92,7 +92,7 @@
         timeout: 120
 
     - name: Provision Application Server 1 EC2 Instance
-      amazon.aws.ec2_instance:
+      ec2_instance:
         name: "{{ instance_name1 }}"
         key_name: "{{ ssh_key_name }}"
         ec2_access_key: "{{ ec2_access_key }}"
@@ -111,7 +111,7 @@
       register: app1_instance
 
     - name: Provision Application Server 2 EC2 Instance
-      amazon.aws.ec2_instance:
+      ec2_instance:
         name: "{{ instance_name2 }}"
         key_name: "{{ ssh_key_name }}"
         ec2_access_key: "{{ ec2_access_key }}"
@@ -135,7 +135,7 @@
   tasks:
     - name: Wait for the new EC2 instance to become available (SSH accessible)
       wait_for:
-        host: "{{ lb_instance.instances[0].public_ip }}"
+        host: "{{ lb_instance.instances[0].network_interfaces[0].association.public_ip }}"
         port: 22
         state: started
         timeout: 300
@@ -145,7 +145,7 @@
         name: haproxy
         state: present
         update_cache: yes
-      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+      delegate_to: "{{ lb_instance.instances[0].network_interfaces[0].association.public_ip }}"
     
     - name: Configure HAProxy for Load Balancing
       copy:
@@ -173,20 +173,20 @@
             mode http
             option http-server-close
             option forwardfor
-            server app1 {{ app1_instance.instances[0].public_ip }}:541 check
-            server app2 {{ app2_instance.instances[0].public_ip }}:541 check
-      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+            server app1 {{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}:541 check
+            server app2 {{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}:541 check
+      delegate_to: "{{ lb_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Ensure HAProxy service is running and enabled
       service:
         name: haproxy
         state: started
         enabled: yes
-      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+      delegate_to: "{{ lb_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Reload HAproxy to apply configuration changes
       command: systemctl reload haproxy
-      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+      delegate_to: "{{ lb_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
 - name: Configure Application Servers
   hosts: localhost
@@ -202,8 +202,8 @@
         - npm
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Verify Node.js installation
       command: node -v
@@ -211,8 +211,8 @@
       changed_when: false
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Verify npm installation
       command: npm -v
@@ -220,8 +220,8 @@
       changed_when: false
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Create app directory
       file:
@@ -231,8 +231,8 @@
         group: ubuntu
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Deploy sample app
       copy:
@@ -255,8 +255,8 @@
         group: ubuntu
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Install PM2
       npm:
@@ -264,8 +264,8 @@
         global: yes
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Start app using pm2
       shell: |
@@ -275,8 +275,8 @@
         chdir: /var/www/hello-world
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Start on boot pm2
       shell: |
@@ -285,8 +285,8 @@
       become: true
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Set ulimits for Node.js security
       lineinfile:
@@ -295,8 +295,8 @@
         state: present
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
 
     - name: Set NODE_ENV to production
       shell: |
@@ -307,5 +307,5 @@
         chdir: "/var/www/hello-world"
       delegate_to: "{{ item }}"
       loop:
-        - "{{ app1_instance.instances[0].public_ip }}"
-        - "{{ app2_instance.instances[0].public_ip }}"
+        - "{{ app1_instance.instances[0].network_interfaces[0].association.public_ip }}"
+        - "{{ app2_instance.instances[0].network_interfaces[0].association.public_ip }}"
