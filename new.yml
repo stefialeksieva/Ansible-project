@@ -1,0 +1,296 @@
+---
+- name: Create EC2 Instances for Load Balancer and Application Servers
+  hosts: localhost
+  gather_facts: no
+  vars_files:
+    - /etc/ansible/vars/vars.yaml
+
+  vars:
+    instance_type: t2.micro
+    instance_name: HAProxy
+    instance_name1: app-server1
+    instance_name2: app-server2
+    image: ami-019374baf467d6601
+    wait: yes
+    group: webserver
+    region: eu-west-2
+    security_group: security-group-app-server1
+    ssh_key_path_local: "/home/ubuntu/ansible-key-rsa"
+    ssh_key_name: ansible-key
+
+  tasks:
+    - name: Create a security group
+      amazon.aws.ec2_security_group:
+        name: "{{ security_group }}"
+        description: "Security group for application servers"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 80
+            to_port: 80
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 443
+            to_port: 443
+            cidr_ip: 0.0.0.0/0
+          - proto: udp
+            from_port: 53
+            to_port: 53
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 3000
+            to_port: 3000
+            cidr_ip: 0.0.0.0/0
+        state: present
+      register: sg
+
+    - name: Debug security group creation result
+      debug:
+        var: sg
+
+    - name: Show security group ID
+      debug:
+        msg: "Security Group created with ID: {{ sg.group_id }}"
+
+    - name: Provision Load Balancer (HAProxy) EC2 Instance
+      amazon.aws.ec2_instance:
+        name: "{{ instance_name }}"
+        key_name: "{{ ssh_key_name }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ image }}"
+        security_group: "{{ security_group }}"
+        region: "{{ region }}"
+        user_data: |
+          #!/bin/bash
+          sudo sed -i '/root\s\+ALL=\(ALL:ALL\) ALL/ a ec2-user ALL=(ALL) NOPASSWD:ALL' /etc/sudoers
+        count: 1
+        wait: yes
+        tags:
+          Name: load-balancer
+      register: lb_instance
+
+    - name: Wait for SSH
+      wait_for:
+        host: "{{ lb_instance.instances[0].public_ip }}"
+        port: 22
+        delay: 10
+        timeout: 120
+
+    - name: Provision Application Server 1 EC2 Instance
+      amazon.aws.ec2_instance:
+        name: "{{ instance_name1 }}"
+        key_name: "{{ ssh_key_name }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ image }}"
+        security_group: "{{ security_group }}"
+        region: "{{ region }}"
+        user_data: |
+          #!/bin/bash
+          sudo sed -i '/root\s\+ALL=\(ALL:ALL\) ALL/ a ec2-user ALL=(ALL) NOPASSWD:ALL' /etc/sudoers
+        count: 1
+        wait: yes
+        tags:
+          Name: app-server-1
+      register: app1_instance
+
+    - name: Provision Application Server 2 EC2 Instance
+      amazon.aws.ec2_instance:
+        name: "{{ instance_name2 }}"
+        key_name: "{{ ssh_key_name }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ image }}"
+        security_group: "{{ security_group }}"
+        region: "{{ region }}"
+        user_data: |
+          #!/bin/bash
+          sudo sed -i '/root\s\+ALL=\(ALL:ALL\) ALL/ a ec2-user ALL=(ALL) NOPASSWD:ALL' /etc/sudoers
+        count: 1
+        wait: yes
+        tags:
+          Name: app-server-2
+      register: app2_instance
+
+- name: Install HAProxy on Load Balancer
+  hosts: localhost
+  become: yes
+  tasks:
+    - name: Wait for the new EC2 instance to become available (SSH accessible)
+      wait_for:
+        host: "{{ lb_instance.instances[0].public_ip }}"
+        port: 22
+        state: started
+        timeout: 300
+
+    - name: Install HAProxy on Load Balancer
+      apt:
+        name: haproxy
+        state: present
+        update_cache: yes
+      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+    
+    - name: Configure HAProxy for Load Balancing
+      copy:
+        dest: /etc/haproxy/haproxy.cfg
+        content: |
+          global
+            log /dev/log local0
+            log /dev/log local1 notice
+            maxconn 2000
+
+          defaults
+            log global
+            option httplog
+            option dontlognull
+            timeout connect 5000ms
+            timeout client 10000ms
+
+          frontend https_front
+            bind *:541
+            mode http
+            default_backend servers
+
+          backend servers
+            balance roundrobin
+            mode http
+            option http-server-close
+            option forwardfor
+            server app1 {{ app1_instance.instances[0].public_ip }}:541 check
+            server app2 {{ app2_instance.instances[0].public_ip }}:541 check
+      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+
+    - name: Ensure HAProxy service is running and enabled
+      service:
+        name: haproxy
+        state: started
+        enabled: yes
+      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+
+    - name: Reload HAproxy to apply configuration changes
+      command: systemctl reload haproxy
+      delegate_to: "{{ lb_instance.instances[0].public_ip }}"
+
+- name: Configure Application Servers
+  hosts: localhost
+  become: yes
+  tasks:
+    - name: Install Node.js and npm
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - nodejs
+        - npm
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Verify Node.js installation
+      command: node -v
+      register: node_version
+      changed_when: false
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Verify npm installation
+      command: npm -v
+      register: npm_version
+      changed_when: false
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Create app directory
+      file:
+        path: /var/www/hello-world
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Deploy sample app
+      copy:
+        dest: /var/www/hello-world/app.js
+        content: |
+          const http = require('http');
+          const hostname = '0.0.0.0';
+          const port = 3000;
+
+          const server = http.createServer((req, res) => {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'text/plain');
+            res.end('Hello World\n');
+          });
+
+          server.listen(port, hostname, () => {
+            console.log('Server running at http://${hostname}:${port}/');
+          });
+        owner: ubuntu
+        group: ubuntu
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Install PM2
+      npm:
+        name: pm2
+        global: yes
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Start app using pm2
+      shell: |
+        pm2 start /var/www/hello-world/app.js --name "hello-world"
+      become: true
+      args:
+        chdir: /var/www/hello-world
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Start on boot pm2
+      shell: |
+        pm2 startup systemd -u ubuntu --htp /home/ubuntu
+        pm2 save
+      become: true
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Set ulimits for Node.js security
+      lineinfile:
+        path: /etc/security/limits.conf
+        line: "* soft nofile 4096"
+        state: present
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
+
+    - name: Set NODE_ENV to production
+      shell: |
+        export NODE_ENV=production
+        pm2 restart hello-world
+      become: true
+      args:
+        chdir: "/var/www/hello-world"
+      delegate_to: "{{ item }}"
+      loop:
+        - "{{ app1_instance.instances[0].public_ip }}"
+        - "{{ app2_instance.instances[0].public_ip }}"
