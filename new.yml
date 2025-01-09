@@ -5,13 +5,6 @@
   vars_files:
     - /etc/ansible/vars/vars.yaml
 
----
-- name: Create EC2 Instances for Load Balancer and Application Servers
-  hosts: localhost
-  gather_facts: no
-  vars_files:
-    - /etc/ansible/vars/vars.yaml
-
   vars:
     instance_type: t2.micro
     instance_name: HAProxy
